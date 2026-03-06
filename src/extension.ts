@@ -1,179 +1,169 @@
 import * as vscode from 'vscode';
 import { StatusBarProvider } from './statusBarProvider';
-import { CommandExecutor } from './commandExecutor';
+import { ApiClient } from './apiClient';
+import { CredentialsLoader } from './credentialsLoader';
 import { OutputFormatter } from './outputFormatter';
 
 let statusBarProvider: StatusBarProvider;
-let commandExecutor: CommandExecutor;
 let intervalId: NodeJS.Timeout | undefined;
+let rateLimitTimeoutId: NodeJS.Timeout | undefined;
+let consecutiveRateLimitCount = 0;
+const BACKOFF_STEPS_MINUTES = [5, 10];
 
 export function activate(context: vscode.ExtensionContext) {
-	console.log('NPX Status Bar extension is now active!');
+    statusBarProvider = new StatusBarProvider();
 
-	// Initialize components
-	statusBarProvider = new StatusBarProvider();
-	commandExecutor = new CommandExecutor();
-	
-	// Set up streaming output callback
-	commandExecutor.setOutputCallback((output: string) => {
-		const formattedOutput = OutputFormatter.formatOutput(output);
-		const tooltip = OutputFormatter.formatTooltip(output);
-		statusBarProvider.updateDisplay(formattedOutput, tooltip);
-	});
+    const refreshCommand = vscode.commands.registerCommand('claudeCodeUsage.refresh', async () => {
+        await fetchAndDisplay();
+    });
 
-	// Register commands
-	const refreshCommand = vscode.commands.registerCommand('ccusageStatusBar.refresh', async () => {
-		await executeNpxCommand();
-	});
+    const showOutputCommand = vscode.commands.registerCommand('claudeCodeUsage.showOutput', () => {
+        showDetailedOutput();
+    });
 
-	const showOutputCommand = vscode.commands.registerCommand('ccusageStatusBar.showOutput', () => {
-		showDetailedOutput();
-	});
+    const configurationChangeListener = vscode.workspace.onDidChangeConfiguration(event => {
+        if (event.affectsConfiguration('claudeCodeUsage')) {
+            restartPeriodicExecution();
+        }
+    });
 
-	const openTerminalCommand = vscode.commands.registerCommand('ccusageStatusBar.openTerminal', () => {
-		openCcusageInTerminal();
-	});
+    startPeriodicExecution();
+    setTimeout(() => { fetchAndDisplay(); }, 1000);
 
-	// Listen for configuration changes
-	const configurationChangeListener = vscode.workspace.onDidChangeConfiguration(event => {
-		if (event.affectsConfiguration('ccusageStatusBar')) {
-			restartPeriodicExecution();
-		}
-	});
-
-	// Start periodic execution
-	startPeriodicExecution();
-
-	// Execute initial command with delay to ensure proper initialization
-	setTimeout(() => {
-		executeNpxCommand();
-	}, 1000);
-
-	// Register disposables
-	context.subscriptions.push(
-		refreshCommand,
-		showOutputCommand,
-		openTerminalCommand,
-		configurationChangeListener,
-		statusBarProvider,
-		commandExecutor
-	);
+    context.subscriptions.push(
+        refreshCommand,
+        showOutputCommand,
+        configurationChangeListener,
+        statusBarProvider,
+    );
 }
 
-async function executeNpxCommand(): Promise<void> {
-	const config = vscode.workspace.getConfiguration('ccusageStatusBar');
-	const enabled = config.get<boolean>('enabled', true);
-	const command = config.get<string>('command', 'npx ccusage@latest blocks');
+async function fetchAndDisplay(): Promise<void> {
+    const config = vscode.workspace.getConfiguration('claudeCodeUsage');
+    const enabled = config.get<boolean>('enabled', true);
 
-	console.log(`[NPX Status Bar] Executing command: ${command}, enabled: ${enabled}`);
+    if (!enabled) {
+        const d = OutputFormatter.formatDisabled();
+        statusBarProvider.updateDisplay(d.text, d.tooltip, d.color);
+        return;
+    }
 
-	if (!enabled) {
-		statusBarProvider.updateDisplay('NPX Disabled', 'NPX Status Bar is disabled in settings');
-		return;
-	}
+    const credentialsPath = config.get<string>('credentialsPath', '~/.claude/.credentials.json');
 
-	if (!command.trim()) {
-		statusBarProvider.setError('No command configured');
-		return;
-	}
+    const loading = OutputFormatter.formatLoading();
+    statusBarProvider.updateDisplay(loading.text, loading.tooltip, loading.color);
 
-	// Show loading state
-	statusBarProvider.setLoading(true);
+    const credResult = CredentialsLoader.loadToken(credentialsPath);
+    if (!credResult.accessToken) {
+        const d = OutputFormatter.formatError(credResult.error ?? 'Failed to load credentials');
+        statusBarProvider.updateDisplay(d.text, d.tooltip, d.color);
+        return;
+    }
 
-	try {
-		console.log(`[NPX Status Bar] Starting command execution: ${command}`);
-		const result = await commandExecutor.executeCommand(command);
-		console.log(`[NPX Status Bar] Command result:`, result);
-		
-		if (result.success) {
-			const formattedOutput = OutputFormatter.formatOutput(result.output);
-			const tooltip = OutputFormatter.formatTooltip(result.output, result.error);
-			
-			console.log(`[NPX Status Bar] Formatted output: ${formattedOutput}`);
-			statusBarProvider.setOutput(formattedOutput);
-			statusBarProvider.updateDisplay(formattedOutput, tooltip);
-		} else {
-			const formattedError = OutputFormatter.formatError(result.error || 'Unknown error');
-			console.log(`[NPX Status Bar] Command failed: ${formattedError}`);
-			statusBarProvider.setError(formattedError);
-		}
-	} catch (error) {
-		const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-		console.error(`[NPX Status Bar] Exception:`, error);
-		statusBarProvider.setError(OutputFormatter.formatError(errorMessage));
-	} finally {
-		statusBarProvider.setLoading(false);
-	}
+    try {
+        const apiResult = await ApiClient.fetchUsage(credResult.accessToken);
+
+        if (!apiResult.success || !apiResult.data) {
+            if (apiResult.rateLimited) {
+                handleRateLimit(apiResult.retryAfterSeconds);
+                return;
+            }
+            const d = OutputFormatter.formatError(apiResult.error ?? 'API request failed');
+            statusBarProvider.updateDisplay(d.text, d.tooltip, d.color);
+            return;
+        }
+
+        consecutiveRateLimitCount = 0;
+        statusBarProvider.setLastRawData(JSON.stringify(apiResult.data, null, 2));
+        const d = OutputFormatter.formatApiResponse(apiResult.data);
+        statusBarProvider.updateDisplay(d.text, d.tooltip, d.color);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        const d = OutputFormatter.formatError(message);
+        statusBarProvider.updateDisplay(d.text, d.tooltip, d.color);
+    }
 }
 
 function startPeriodicExecution(): void {
-	const config = vscode.workspace.getConfiguration('ccusageStatusBar');
-	const interval = config.get<number>('interval', 30000);
+    const config = vscode.workspace.getConfiguration('claudeCodeUsage');
+    const intervalMinutes = config.get<number>('intervalMinutes', 20);
 
-	if (interval > 0) {
-		intervalId = setInterval(() => {
-			executeNpxCommand();
-		}, interval);
-	}
+    if (intervalMinutes > 0) {
+        intervalId = setInterval(() => { fetchAndDisplay(); }, intervalMinutes * 60 * 1000);
+    }
+}
+
+function handleRateLimit(retryAfterSeconds?: number): void {
+    stopPeriodicExecution();
+    if (rateLimitTimeoutId) {
+        clearTimeout(rateLimitTimeoutId);
+        rateLimitTimeoutId = undefined;
+    }
+    consecutiveRateLimitCount++;
+
+    let waitMinutes: number;
+    if (retryAfterSeconds !== undefined) {
+        waitMinutes = Math.ceil(retryAfterSeconds / 60);
+    } else {
+        const stepIndex = consecutiveRateLimitCount - 1;
+        if (stepIndex < BACKOFF_STEPS_MINUTES.length) {
+            waitMinutes = BACKOFF_STEPS_MINUTES[stepIndex];
+        } else {
+            consecutiveRateLimitCount = 0;
+            startPeriodicExecution();
+            return;
+        }
+    }
+
+    const d = OutputFormatter.formatRateLimited(waitMinutes);
+    statusBarProvider.updateDisplay(d.text, d.tooltip, d.color);
+
+    rateLimitTimeoutId = setTimeout(() => {
+        rateLimitTimeoutId = undefined;
+        fetchAndDisplay().then(() => {
+            if (consecutiveRateLimitCount === 0) {
+                startPeriodicExecution();
+            }
+        });
+    }, waitMinutes * 60 * 1000);
 }
 
 function stopPeriodicExecution(): void {
-	if (intervalId) {
-		clearInterval(intervalId);
-		intervalId = undefined;
-	}
+    if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = undefined;
+    }
 }
 
 function restartPeriodicExecution(): void {
-	stopPeriodicExecution();
-	startPeriodicExecution();
+    if (rateLimitTimeoutId) {
+        clearTimeout(rateLimitTimeoutId);
+        rateLimitTimeoutId = undefined;
+    }
+    consecutiveRateLimitCount = 0;
+    stopPeriodicExecution();
+    startPeriodicExecution();
+    fetchAndDisplay();
 }
 
 function showDetailedOutput(): void {
-	const lastOutput = statusBarProvider.getLastOutput();
-	const lastError = statusBarProvider.getLastError();
-	const config = vscode.workspace.getConfiguration('ccusageStatusBar');
-	const command = config.get<string>('command', 'npx ccusage@latest blocks');
+    const rawData = statusBarProvider.getLastRawData();
+    const content = rawData
+        ? `Claude API Usage Response:\n\n${rawData}`
+        : 'No usage data available. Try refreshing (click the status bar item).';
 
-	let content: string;
-	
-	if (lastError) {
-		content = `Command: ${command}\n\nError:\n${lastError}`;
-	} else if (lastOutput) {
-		content = `Command: ${command}\n\nOutput:\n${lastOutput}`;
-	} else {
-		content = `Command: ${command}\n\nNo output available. Try refreshing the status.`;
-	}
-
-	// Show in a new document
-	vscode.workspace.openTextDocument({
-		content: content,
-		language: 'plaintext'
-	}).then(doc => {
-		vscode.window.showTextDocument(doc);
-	});
-}
-
-function openCcusageInTerminal(): void {
-	// Create a new terminal
-	const terminal = vscode.window.createTerminal({
-		name: 'CCUsage Monitor',
-		cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
-	});
-
-	// Send the ccusage command to the terminal
-	terminal.sendText('npx ccusage@latest blocks --live');
-	
-	// Show the terminal
-	terminal.show();
+    vscode.workspace.openTextDocument({ content, language: 'json' }).then(doc => {
+        vscode.window.showTextDocument(doc);
+    });
 }
 
 export function deactivate() {
-	stopPeriodicExecution();
-	if (commandExecutor) {
-		commandExecutor.dispose();
-	}
-	if (statusBarProvider) {
-		statusBarProvider.dispose();
-	}
+    stopPeriodicExecution();
+    if (rateLimitTimeoutId) {
+        clearTimeout(rateLimitTimeoutId);
+        rateLimitTimeoutId = undefined;
+    }
+    if (statusBarProvider) {
+        statusBarProvider.dispose();
+    }
 }
