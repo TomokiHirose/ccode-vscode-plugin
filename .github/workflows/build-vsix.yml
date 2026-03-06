@@ -11,33 +11,33 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
-        cache: 'yarn'
-        
+        cache: 'npm'
+
     - name: Install dependencies
-      run: yarn install
-      
+      run: npm ci
+
     - name: Compile TypeScript
-      run: yarn run compile
-      
+      run: npm run compile
+
     - name: Run linting
-      run: yarn run lint
-      
+      run: npm run lint
+
     - name: Run tests
-      run: yarn run test
-      continue-on-error: true  # Tests might fail in CI environment
-      
+      run: npm test
+      continue-on-error: true
+
     - name: Package VSIX
-      run: yarn vsce package
-      
+      run: npx vsce package
+
     - name: Get package info
       id: package
       run: |
@@ -46,14 +46,15 @@ jobs:
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         echo "name=$NAME" >> $GITHUB_OUTPUT
         echo "filename=$NAME-$VERSION.vsix" >> $GITHUB_OUTPUT
-        
+
     - name: Upload VSIX as artifact
+      if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
       uses: actions/upload-artifact@v4
       with:
         name: ${{ steps.package.outputs.filename }}
         path: "*.vsix"
         retention-days: 30
-        
+
     - name: Create Release (on tag)
       if: startsWith(github.ref, 'refs/tags/v')
       uses: softprops/action-gh-release@v1
