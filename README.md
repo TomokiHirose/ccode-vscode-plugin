@@ -35,12 +35,11 @@ Claude API Usage
 | 設定キー | 型 | デフォルト | 説明 |
 |---------|-----|-----------|------|
 | `claudeCodeUsage.intervalMinutes` | number | `20` | ポーリング間隔（分）。`0` で無効化 |
-| `claudeCodeUsage.credentialsPath` | string | `~/.claude/.credentials.json` | クレデンシャルファイルのパス（`~` 対応） |
+| `claudeCodeUsage.credentialsPath` | string | `~/.claude/.credentials.json` | クレデンシャルファイルのパス |
 | `claudeCodeUsage.enabled` | boolean | `true` | 有効/無効 |
 
-> **注意**: 429エラー（Too Many Requests）が発生した場合、自動的にポーリングを一時停止し、5分→10分の順で再試行します。それ以降は通常のポーリング間隔（`intervalMinutes`）に戻ります。`Retry-After`レスポンスヘッダーがある場合はその値を優先します。
-
 ## コマンド
+定期実行されるコマンドを、VSCodeのコマンドパレットからも手動で実行できます。
 
 - **Claude Code Usage: Refresh** — 手動でステータスを更新
 - **Claude Code Usage: Show Output** — APIレスポンスのJSONを表示
@@ -57,5 +56,3 @@ Claude API Usage
 - Anthropic OAuth Usage APIを使用したレート制限使用量の表示に変更
 - ステータスバー表示形式をプログレスバーに変更
 - 設定キーを `claudeCodeUsage.intervalMinutes`（分指定）に変更
-- 429エラー時の指数バックオフ対応（5分→10分→通常間隔）
-- `Retry-After`ヘッダー優先のバックオフ待機
