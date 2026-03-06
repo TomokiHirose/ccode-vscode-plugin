@@ -1,8 +1,8 @@
 {
-  "name": "ccode-vscode-plugin",
-  "displayName": "CCUsage Status Bar",
-  "description": "Display CCUsage metrics in VSCode status bar",
-  "version": "0.0.1",
+  "name": "claude-code-usage-check-in-statusbar",
+  "displayName": "Claude Code Usage Check in Status Bar",
+  "description": "Display Claude Code API rate limit usage in VSCode status bar",
+  "version": "0.1.0",
   "engines": {
     "vscode": "^1.101.0"
   },
@@ -16,49 +16,40 @@
   "contributes": {
     "commands": [
       {
-        "command": "ccusageStatusBar.refresh",
-        "title": "Refresh CCUsage Status"
+        "command": "claudeCodeUsage.refresh",
+        "title": "Claude Code Usage: Refresh"
       },
       {
-        "command": "ccusageStatusBar.showOutput",
-        "title": "Show CCUsage Output"
-      },
-      {
-        "command": "ccusageStatusBar.openTerminal",
-        "title": "Open CCUsage in Terminal"
+        "command": "claudeCodeUsage.showOutput",
+        "title": "Claude Code Usage: Show Output"
       }
     ],
     "configuration": {
-      "title": "CCUsage Status Bar",
+      "title": "Claude Code Usage Check in Status Bar",
       "properties": {
-        "ccusageStatusBar.command": {
+        "claudeCodeUsage.intervalMinutes": {
+          "type": "number",
+          "default": 20,
+          "description": "API polling interval in minutes (0 to disable auto-refresh)"
+        },
+        "claudeCodeUsage.credentialsPath": {
           "type": "string",
-          "default": "npx ccusage@latest blocks",
-          "description": "CCUsage command to execute and display in status bar"
+          "default": "~/.claude/.credentials.json",
+          "description": "Path to Claude credentials file (supports ~ for home directory)"
         },
-        "ccusageStatusBar.interval": {
-          "type": "number",
-          "default": 30000,
-          "description": "Execution interval in milliseconds (0 to disable auto-refresh)"
-        },
-        "ccusageStatusBar.maxLength": {
-          "type": "number",
-          "default": 50,
-          "description": "Maximum characters to display in status bar"
-        },
-        "ccusageStatusBar.enabled": {
+        "claudeCodeUsage.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable/disable the CCUsage status bar display"
+          "description": "Enable/disable the Claude Code Usage status bar display"
         }
       }
     }
   },
   "scripts": {
-    "vscode:prepublish": "yarn run compile",
+    "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "pretest": "yarn run compile && yarn run lint",
+    "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test"
   },

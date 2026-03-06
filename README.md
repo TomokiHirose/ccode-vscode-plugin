@@ -1,52 +1,61 @@
-# CCUsage Status Bar Extension
+# Claude Code Usage Check in Status Bar
 
-VS Codeのステータスバーに`ccusage`の使用量メトリクスを表示するエクステンションです。
+Claude APIのレート制限使用量をVSCodeのステータスバーに表示します。
 
 ## 機能
 
-- VS Codeステータスバーに`ccusage blocks`のメトリクスを表示
-- アクティブなモデル、トークン使用量、コスト情報を表示
-- 30秒間隔での自動更新（設定可能）
-- ステータスバーのクリックでターミナルに`ccusage`を開く
+- 5時間・7日間のレート制限使用量をプログレスバーで表示
+- 使用率に応じたカラーリング（0-49%: 緑 / 50-79%: 黄 / 80-100%: 赤）
+- 20分間隔での自動更新（設定可能）
+- ステータスバーのクリックで手動リフレッシュ
 
-## 必要な環境
+## 前提条件
 
-- Node.jsとNPXがインストール済み
-- `ccusage`パッケージがグローバルで利用可能
+- Claude Code にログインしていること
+- `~/.claude/.credentials.json` が存在すること
 
-## エクステンション設定
+## 表示形式
 
-この拡張機能では以下の設定項目を提供しています：
+```
+▰▰▰▰▰▱▱▱▱▱ 5h  ▰▰▰▱▱▱▱▱▱▱ 7d
+```
 
-- `ccusageStatusBar.command`: 実行するCCUsageコマンド（デフォルト: "npx ccusage@latest blocks"）
-- `ccusageStatusBar.interval`: 実行間隔（ミリ秒）（デフォルト: 30000）
-- `ccusageStatusBar.maxLength`: ステータスバーに表示する最大文字数（デフォルト: 50）
-- `ccusageStatusBar.enabled`: エクステンションの有効/無効化（デフォルト: true）
+ツールチップ:
+```
+Claude API Usage
+────────────────
+5時間:  45% (リセット: 3/5 14:30 JST)
+7日間:  32% (リセット: 3/10 09:00 JST)
+────────────────
+最終更新: 14:28 JST
+```
 
-## インストール方法
+## 設定
 
-### 手動インストール
-1. このリポジトリをクローンまたはダウンロード
-2. VS Codeでコマンドパレット（`Ctrl+Shift+P` / `Cmd+Shift+P`）を開く
-3. `Extensions: Install from VSIX...` を選択
-4. パッケージ化したVSIXファイルを選択してインストール
+| 設定キー | 型 | デフォルト | 説明 |
+|---------|-----|-----------|------|
+| `claudeCodeUsage.intervalMinutes` | number | `20` | ポーリング間隔（分）。`0` で無効化 |
+| `claudeCodeUsage.credentialsPath` | string | `~/.claude/.credentials.json` | クレデンシャルファイルのパス（`~` 対応） |
+| `claudeCodeUsage.enabled` | boolean | `true` | 有効/無効 |
 
-### 使用方法
-1. エクステンションをインストール
-2. ステータスバーに自動的にccusageメトリクスが表示されます
-3. ステータスバーアイテムをクリックすると新しいターミナルでccusageが開きます
+> **注意**: 429エラー（Too Many Requests）が発生した場合、自動的にポーリングを一時停止し、5分→10分の順で再試行します。それ以降は通常のポーリング間隔（`intervalMinutes`）に戻ります。`Retry-After`レスポンスヘッダーがある場合はその値を優先します。
 
-## ステータスバー表示形式
+## コマンド
 
-`🤖sonnet-4 🎯13.44K Tkns 💰$2.31 📈$5.06`
+- **Claude Code Usage: Refresh** — 手動でステータスを更新
+- **Claude Code Usage: Show Output** — APIレスポンスのJSONを表示
 
-- 🤖: アクティブなモデル名
-- 🎯: トークン使用量（千単位）
-- 💰: 現在のアクティブコスト
-- 📈: 予測コスト
+## インストール
+
+1. VSIXファイルをダウンロード
+2. VSCodeの拡張機能タブ → `...` → `Install from VSIX...` でファイルを選択
 
 ## リリースノート
 
-### 0.0.1
+### 0.1.0
 
-CCUsage Status Bar extensionの初回リリース。
+- Anthropic OAuth Usage APIを使用したレート制限使用量の表示に変更
+- ステータスバー表示形式をプログレスバーに変更
+- 設定キーを `claudeCodeUsage.intervalMinutes`（分指定）に変更
+- 429エラー時の指数バックオフ対応（5分→10分→通常間隔）
+- `Retry-After`ヘッダー優先のバックオフ待機

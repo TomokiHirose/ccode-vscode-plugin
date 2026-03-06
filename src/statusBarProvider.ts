@@ -2,64 +2,31 @@ import * as vscode from 'vscode';
 
 export class StatusBarProvider {
     private statusBarItem: vscode.StatusBarItem;
-    private isLoading: boolean = false;
-    private lastOutput: string = '';
-    private lastError: string = '';
+    private lastRawData: string = '';
 
     constructor() {
         this.statusBarItem = vscode.window.createStatusBarItem(
             vscode.StatusBarAlignment.Left,
             100
         );
-        this.statusBarItem.command = 'npxStatusBar.openTerminal';
+        this.statusBarItem.command = 'claudeCodeUsage.refresh';
+        this.statusBarItem.text = '$(sync~spin) Claude: Starting...';
+        this.statusBarItem.tooltip = 'Claude API Usage - Initializing';
         this.statusBarItem.show();
-        this.updateDisplay('NPX', 'Ready');
     }
 
-    public updateDisplay(text: string, tooltip?: string): void {
-        const config = vscode.workspace.getConfiguration('npxStatusBar');
-        const maxLength = config.get<number>('maxLength', 50);
-        
-        let displayText = text;
-        if (displayText.length > maxLength) {
-            displayText = displayText.substring(0, maxLength - 3) + '...';
-        }
-
-        this.statusBarItem.text = `$(terminal) ${displayText}`;
-        this.statusBarItem.tooltip = tooltip || displayText;
+    public updateDisplay(text: string, tooltip?: string, color?: string): void {
+        this.statusBarItem.text = text;
+        this.statusBarItem.tooltip = tooltip ?? text;
+        this.statusBarItem.color = color;
     }
 
-    public setLoading(loading: boolean): void {
-        this.isLoading = loading;
-        if (loading) {
-            this.statusBarItem.text = `$(sync~spin) NPX Running...`;
-            this.statusBarItem.tooltip = 'NPX command is executing...';
-        }
+    public setLastRawData(rawData: string): void {
+        this.lastRawData = rawData;
     }
 
-    public setOutput(output: string): void {
-        this.lastOutput = output;
-        this.lastError = '';
-        this.updateDisplay(output, `NPX Output: ${output}`);
-    }
-
-    public setError(error: string): void {
-        this.lastError = error;
-        this.lastOutput = '';
-        this.statusBarItem.text = `$(error) NPX Error`;
-        this.statusBarItem.tooltip = `NPX Error: ${error}`;
-    }
-
-    public getLastOutput(): string {
-        return this.lastOutput;
-    }
-
-    public getLastError(): string {
-        return this.lastError;
-    }
-
-    public isCurrentlyLoading(): boolean {
-        return this.isLoading;
+    public getLastRawData(): string {
+        return this.lastRawData;
     }
 
     public dispose(): void {
